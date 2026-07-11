@@ -1,0 +1,13 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# User settings and databases
+settings.json
+data/
+
+# IDE / local configs
+.vscode/
+.idea/
