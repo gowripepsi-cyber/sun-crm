@@ -16,7 +16,9 @@ DEFAULT_SETTINGS = {
     "password_hash": "",  # SHA-256 hash of password
     "auto_backup": True,
     "auto_backup_on_exit": True,
-    "auto_backup_count": 5
+    "auto_backup_count": 5,
+    "use_gdrive": False,
+    "gdrive_credentials_path": "credentials.json"
 }
 
 class SettingsManager:

@@ -19,6 +19,7 @@ from widgets.search_tab import SearchTab
 from widgets.reports_tab import ReportsTab
 from widgets.backup_tab import BackupTab
 from widgets.settings_tab import SettingsTab
+from widgets.names_list_tab import CustomerNamesListTab
 
 class LoginDialog(QDialog):
     """Secure startup login screen styled matching the dark/light QSS."""
@@ -200,6 +201,7 @@ class MainWindow(QMainWindow):
         navs = [
             ("📊 Dashboard", 0),
             ("👤 Customers", 1),
+            ("📋 Names List", 7),
             ("🔍 Search Engine", 2),
             ("📈 Report Hub", 3),
             ("💾 Database Backup", 4),
@@ -211,6 +213,7 @@ class MainWindow(QMainWindow):
             btn = QPushButton(name)
             btn.setCheckable(True)
             btn.setProperty("class", "NavButton")
+            btn.setProperty("stack_idx", idx)
             btn.clicked.connect(lambda checked, i=idx: self.switch_page(i))
             sidebar_layout.addWidget(btn)
             self.nav_buttons.append(btn)
@@ -239,15 +242,20 @@ class MainWindow(QMainWindow):
         self.tab_backup = BackupTab(self)
         self.tab_settings = SettingsTab(self)
         self.tab_future = FutureModulesTab(self)
+        self.tab_names_list = CustomerNamesListTab(self)
         
         # Add to stack
-        self.page_stack.addWidget(self.tab_dashboard)  # Index 0
-        self.page_stack.addWidget(self.tab_customer)   # Index 1
-        self.page_stack.addWidget(self.tab_search)     # Index 2
-        self.page_stack.addWidget(self.tab_reports)    # Index 3
-        self.page_stack.addWidget(self.tab_backup)     # Index 4
-        self.page_stack.addWidget(self.tab_settings)   # Index 5
-        self.page_stack.addWidget(self.tab_future)     # Index 6
+        self.page_stack.addWidget(self.tab_dashboard)    # Index 0
+        self.page_stack.addWidget(self.tab_customer)     # Index 1
+        self.page_stack.addWidget(self.tab_search)       # Index 2
+        self.page_stack.addWidget(self.tab_reports)      # Index 3
+        self.page_stack.addWidget(self.tab_backup)       # Index 4
+        self.page_stack.addWidget(self.tab_settings)     # Index 5
+        self.page_stack.addWidget(self.tab_future)       # Index 6
+        self.page_stack.addWidget(self.tab_names_list)   # Index 7
+        
+        # Wire Names List → navigate to full Customer profile on double-click
+        self.tab_names_list.open_customer_profile.connect(self.navigate_to_customer)
         
         master_layout.addWidget(self.page_stack)
         
@@ -258,8 +266,8 @@ class MainWindow(QMainWindow):
 
     def switch_page(self, index):
         # Set checked state on sidebar buttons matching page
-        for idx, btn in enumerate(self.nav_buttons):
-            btn.setChecked(idx == index)
+        for btn in self.nav_buttons:
+            btn.setChecked(btn.property("stack_idx") == index)
             
         self.page_stack.setCurrentIndex(index)
         
@@ -273,6 +281,8 @@ class MainWindow(QMainWindow):
         elif index == 4:
             self.tab_backup.refresh_backup_info()
             self.tab_backup.refresh_history_table()
+        elif index == 7:
+            self.tab_names_list.refresh()
 
     def navigate_to_customer(self, customer_id):
         """Forces dashboard or search results double click to hop to customer profile tab."""

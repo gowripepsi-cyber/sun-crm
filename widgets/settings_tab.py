@@ -164,6 +164,22 @@ class SettingsTab(QWidget):
         
         opt_layout.addLayout(h_pref)
         
+        # Google Drive Integration
+        v_gdrive = QVBoxLayout()
+        v_gdrive.addWidget(QLabel("Google Drive Integration:"))
+        self.gdrive_enable = QCheckBox("Use Google Drive for Documents (requires credentials.json)")
+        v_gdrive.addWidget(self.gdrive_enable)
+        
+        h_cred = QHBoxLayout()
+        self.gdrive_cred_path = QLineEdit()
+        self.gdrive_cred_path.setPlaceholderText("Path to credentials.json")
+        self.gdrive_cred_btn = QPushButton("Browse")
+        self.gdrive_cred_btn.clicked.connect(self.browse_gdrive_cred)
+        h_cred.addWidget(self.gdrive_cred_path)
+        h_cred.addWidget(self.gdrive_cred_btn)
+        v_gdrive.addLayout(h_cred)
+        opt_layout.addLayout(v_gdrive)
+        
         # Password setting button row
         pwd_row = QHBoxLayout()
         self.set_pwd_btn = QPushButton("Set / Change Lock Password")
@@ -204,6 +220,8 @@ class SettingsTab(QWidget):
         self.db_path.setText(settings_mgr.get("db_location", ""))
         self.docs_folder.setText(settings_mgr.get("documents_folder", ""))
         self.backup_folder.setText(settings_mgr.get("backup_folder", ""))
+        self.gdrive_enable.setChecked(settings_mgr.get("use_gdrive", False))
+        self.gdrive_cred_path.setText(settings_mgr.get("gdrive_credentials_path", "credentials.json"))
         
         idx = self.theme_combo.findText(settings_mgr.get("theme", "Dark"))
         self.theme_combo.setCurrentIndex(idx if idx >= 0 else 0)
@@ -224,6 +242,11 @@ class SettingsTab(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Select Documents Folder")
         if folder:
             self.docs_folder.setText(folder)
+
+    def browse_gdrive_cred(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select credentials.json", "", "JSON Files (*.json)")
+        if path:
+            self.gdrive_cred_path.setText(path)
 
     def browse_backup(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Backup Folder")
@@ -277,6 +300,9 @@ class SettingsTab(QWidget):
         settings_mgr.set("db_location", self.db_path.text().strip())
         settings_mgr.set("documents_folder", self.docs_folder.text().strip())
         settings_mgr.set("backup_folder", self.backup_folder.text().strip())
+        
+        settings_mgr.set("use_gdrive", self.gdrive_enable.isChecked())
+        settings_mgr.set("gdrive_credentials_path", self.gdrive_cred_path.text().strip())
         
         theme_sel = self.theme_combo.currentText()
         settings_mgr.set("theme", theme_sel)

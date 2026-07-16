@@ -2,6 +2,7 @@ import os
 import shutil
 import hashlib
 import urllib.parse
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -14,6 +15,7 @@ from PySide6.QtCore import Qt, QUrl, QRectF
 from PySide6.QtGui import QFont, QIcon, QDesktopServices, QPainter, QColor, QPen, QBrush
 import database
 from settings_manager import settings_mgr
+from google_drive import gdrive_mgr
 
 class QRCodeWidget(QWidget):
     """Custom widget that draws a deterministic QR code mock based on customer code."""
@@ -752,10 +754,13 @@ class CustomerTab(QWidget):
             
         fields = database.get_customer_other_info(self.current_customer_id)
         self.fields_table.setRowCount(len(fields))
+        self.fields_table.setWordWrap(True)
         for i, f in enumerate(fields):
             self.fields_table.setItem(i, 0, QTableWidgetItem(str(f['id'])))
             self.fields_table.setItem(i, 1, QTableWidgetItem(f['title']))
             self.fields_table.setItem(i, 2, QTableWidgetItem(f['value'] or ''))
+        
+        self.fields_table.resizeRowsToContents()
 
     def on_add_custom_field(self):
         if not self.current_customer_id:
@@ -765,7 +770,7 @@ class CustomerTab(QWidget):
         if not ok1 or not title.strip():
             return
             
-        value, ok2 = QInputDialog.getText(self, "Custom Field", f"Enter Value for '{title}':")
+        value, ok2 = QInputDialog.getMultiLineText(self, "Custom Field", f"Enter Value for '{title}':")
         if not ok2:
             return
             
@@ -784,7 +789,7 @@ class CustomerTab(QWidget):
         title = self.fields_table.item(row, 1).text()
         value = self.fields_table.item(row, 2).text()
         
-        new_val, ok = QInputDialog.getText(self, "Edit Field", f"Edit Value for '{title}':", QLineEdit.Normal, value)
+        new_val, ok = QInputDialog.getMultiLineText(self, "Edit Field", f"Edit Value for '{title}':", value)
         if ok:
             try:
                 database.update_other_info(field_id, title, new_val.strip())
@@ -830,47 +835,61 @@ class CustomerTab(QWidget):
         if not self.current_customer_id:
             return
             
-        filepath, _ = QFileDialog.getOpenFileName(
-            self, "Select Document to Upload", "", 
+        filepaths, _ = QFileDialog.getOpenFileNames(
+            self, "Select Documents to Upload", "", 
             "All Document Files (*.pdf *.png *.jpg *.jpeg);;PDF Documents (*.pdf);;Images (*.png *.jpg *.jpeg)"
         )
         
-        if not filepath:
+        if not filepaths:
             return
             
         remarks, ok = QInputDialog.getText(self, "Document Remarks", "Enter document remarks / comments:")
-        if not ok:
-            remarks = ""
             
         try:
-            # Physical directory details from settings
-            dest_dir_root = settings_mgr.get("documents_folder")
+            use_gdrive = settings_mgr.get("use_gdrive", False)
             cust = database.get_customer(self.current_customer_id)
             code = cust['customer_code']
             
-            # Separate by customer code subdirectory for integrity
-            dest_dir = os.path.join(dest_dir_root, code)
-            os.makedirs(dest_dir, exist_ok=True)
+            if not use_gdrive:
+                # Physical directory details from settings
+                dest_dir_root = settings_mgr.get("documents_folder")
+                # Separate by customer code subdirectory for integrity
+                dest_dir = os.path.join(dest_dir_root, code)
+                os.makedirs(dest_dir, exist_ok=True)
             
-            # Avoid collisions by adding timestamp prefix
-            filename = os.path.basename(filepath)
-            unique_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
-            dest_path = os.path.join(dest_dir, unique_filename)
-            
-            # Copy file
-            shutil.copy2(filepath, dest_path)
-            
-            # Resolve extension
-            _, ext = os.path.splitext(filename)
-            file_type = ext.replace(".", "").upper()
-            
-            # DB save
-            database.add_document(self.current_customer_id, filename, dest_path, file_type, remarks)
+            uploaded_count = 0
+            for filepath in filepaths:
+                filename = os.path.basename(filepath)
+                # If no remarks provided or cancelled, use filename
+                doc_remarks = remarks.strip() if ok and remarks.strip() else filename
+                
+                # Resolve extension
+                _, ext = os.path.splitext(filename)
+                file_type = ext.replace(".", "").upper()
+                
+                if use_gdrive:
+                    file_id, web_link = gdrive_mgr.upload_file(filepath, code)
+                    dest_path = f"gdrive://{web_link}"
+                else:
+                    # Avoid collisions by adding timestamp prefix
+                    unique_filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{filename}"
+                    dest_path = os.path.join(dest_dir, unique_filename)
+                    # Copy file
+                    shutil.copy2(filepath, dest_path)
+                
+                # DB save
+                database.add_document(self.current_customer_id, filename, dest_path, file_type, doc_remarks)
+                uploaded_count += 1
+                
             self.refresh_documents()
             
-            QMessageBox.information(self, "Success", f"Document '{filename}' uploaded successfully.")
+            if uploaded_count == 1:
+                QMessageBox.information(self, "Success", f"Document '{os.path.basename(filepaths[0])}' uploaded successfully.")
+            else:
+                QMessageBox.information(self, "Success", f"{uploaded_count} documents uploaded successfully.")
+                
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to upload document: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to upload document(s): {e}")
 
     def on_view_document(self):
         row = self.docs_table.currentRow()
@@ -879,7 +898,16 @@ class CustomerTab(QWidget):
             return
             
         filepath = self.docs_table.item(row, 1).data(Qt.UserRole)
-        if not filepath or not os.path.exists(filepath):
+        if not filepath:
+            QMessageBox.critical(self, "File Error", "The file path is missing.")
+            return
+            
+        if filepath.startswith("gdrive://"):
+            web_link = filepath.replace("gdrive://", "")
+            webbrowser.open(web_link)
+            return
+            
+        if not os.path.exists(filepath):
             QMessageBox.critical(self, "File Error", "The file does not exist on disk or path is corrupt.")
             return
             
@@ -894,6 +922,10 @@ class CustomerTab(QWidget):
         filepath = None
         if row >= 0:
             filepath = self.docs_table.item(row, 1).data(Qt.UserRole)
+            
+        if filepath and filepath.startswith("gdrive://"):
+            QMessageBox.information(self, "Cloud Storage", "This file is stored in Google Drive. Please use the View/Open button to open it in your browser.")
+            return
             
         if filepath and os.path.exists(filepath):
             folder = os.path.dirname(filepath)
